@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLemStore } from '@/lib/store'
 import { actForLevel, levelCounter, BASE_LEVELS } from '@/lib/lem/acts'
 import { CATEGORIES } from '@/lib/lem/categories'
@@ -8,6 +8,7 @@ import type { NodeDTO } from '@/lib/lem/types'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ForkCard, SkeletonCard } from './fork-card'
+import { EditVariantDialog } from './edit-variant-dialog'
 import { MapFullscreenButton, TreeMapContent, TreeMapDialog } from './tree-map'
 import { ExportDialog } from './export-dialog'
 import { CategoryChip, EndMark } from './ui-bits'
@@ -212,6 +213,8 @@ function CurrentWave() {
   const busy = useLemStore((s) => s.busy)
   const lemRunning = useLemStore((s) => s.lemRunning)
   const settings = useLemStore((s) => s.settings)
+  // узел, открытый в 3D-окне правки варианта
+  const [editNode, setEditNode] = useState<NodeDTO | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   const wave = useMemo(() => {
@@ -299,6 +302,7 @@ function CurrentWave() {
                 state={n.isChosen ? 'selected' : 'normal'}
                 disabled={busy || lemRunning}
                 onSelect={(node) => void selectNode(node.id)}
+                onEdit={setEditNode}
               />
             ))}
           </div>
@@ -310,6 +314,9 @@ function CurrentWave() {
           </div>
         </>
       )}
+
+      {/* 3D-окно правки варианта развития события */}
+      <EditVariantDialog node={editNode} onClose={() => setEditNode(null)} />
     </section>
   )
 }
