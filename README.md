@@ -123,7 +123,7 @@ npm run dev
 
 
 
-Откройте \[http://localhost:3000](http://localhost:3000). Для остановки нажмите `Ctrl+C` в терминале.
+Откройте \ [http://localhost:3000] (http://localhost:3000). Для остановки нажмите `Ctrl+C` в терминале.
 
 
 
