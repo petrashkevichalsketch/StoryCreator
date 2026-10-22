@@ -25,6 +25,7 @@ export function toNodeDTO(n: PlotNode): NodeDTO {
     tags,
     isChosen: n.isChosen,
     isLem: n.isLem,
+    editedByAuthor: n.editedByAuthor,
     quip: n.quip,
     isFinal: n.isFinal,
     generationId: n.generationId,

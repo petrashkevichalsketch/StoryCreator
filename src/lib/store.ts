@@ -4,6 +4,9 @@ import { create } from 'zustand'
 import { toast } from '@/hooks/use-toast'
 import { BASE_LEVELS } from './lem/acts'
 import type { SettingsDTO, TreePayload, WaveErrorInfo } from './lem/types'
+import type { VariantPatchData } from './lem/validator'
+
+export type VariantPatch = VariantPatchData
 
 export type Screen = 'loading' | 'onboarding' | 'library' | 'constructor' | 'settings'
 
@@ -36,6 +39,10 @@ interface LemStore {
   chooseCategory: (category: string) => Promise<void>
   selectNode: (nodeId: string, isFinal?: boolean) => Promise<void>
   returnToNode: (nodeId: string) => Promise<void>
+  /** ручная правка варианта без принятия; возвращает текст ошибки */
+  updateNode: (nodeId: string, patch: VariantPatch) => Promise<string | null>
+  /** «Сохранить и принять»: правка → выбор узла → автозапуск следующей волны */
+  saveAndAccept: (nodeId: string, patch: VariantPatch) => Promise<string | null>
   generateNextWave: () => Promise<boolean>
   regenerate: () => Promise<void>
   lemStart: () => void
@@ -237,6 +244,62 @@ const useLemStoreRef = create<LemStore>((set, get) => ({
       return false
     } finally {
       set({ generating: false })
+    }
+  },
+
+  updateNode: async (nodeId, patch) => {
+    if (get().busy) return 'Идёт другая операция, подождите секунду'
+    set({ busy: true, waveError: null })
+    try {
+      const res = await fetch(`/api/branches/${nodeId}/update`, {
+        method: 'PATCH',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(patch),
+      })
+      const data = (await res.json()) as TreePayload & { error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Не удалось сохранить правку')
+      set({ payload: data })
+      return null
+    } catch (e) {
+      return (e as Error).message
+    } finally {
+      set({ busy: false })
+    }
+  },
+
+  saveAndAccept: async (nodeId, patch) => {
+    if (get().lemRunning) return 'Сначала остановите режим Лема'
+    if (get().busy) return 'Идёт другая операция, подождите секунду'
+    set({ busy: true, waveError: null })
+    try {
+      // 1) сохраняем правку варианта
+      const resUp = await fetch(`/api/branches/${nodeId}/update`, {
+        method: 'PATCH',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(patch),
+      })
+      const dataUp = (await resUp.json()) as TreePayload & { error?: string }
+      if (!resUp.ok) throw new Error(dataUp.error ?? 'Не удалось сохранить правку')
+      // 2) принимаем вариант: путь фиксируется, прежнее продолжение остаётся альтернативой
+      const resSel = await fetch(`/api/branches/${nodeId}/select`, {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({}),
+      })
+      const data = (await resSel.json()) as TreePayload & { error?: string }
+      if (!resSel.ok) throw new Error(data.error ?? 'Не удалось принять вариант')
+      set({ payload: data })
+      // 3) запускаем следующий этап: автогенерация следующей волны развилок
+      const cur = data.currentNode
+      if (cur && !cur.isFinal && cur.level < BASE_LEVELS && !data.nodes.some((n) => n.parentId === cur.id)) {
+        set({ busy: false })
+        await get().generateNextWave()
+      }
+      return null
+    } catch (e) {
+      return (e as Error).message
+    } finally {
+      if (get().busy) set({ busy: false })
     }
   },
 

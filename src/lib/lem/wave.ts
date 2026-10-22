@@ -83,7 +83,13 @@ export async function generateWaveForNode(input: GenerateWaveInput): Promise<Gen
   const chain = chainToRoot(allNodes, parentNode.id)
   const path: PathItem[] = chain
     .filter((n) => n.level >= 1)
-    .map((n) => ({ level: n.level, title: n.title, description: n.description, consequences: n.consequences }))
+    .map((n) => ({
+      level: n.level,
+      title: n.title,
+      description: n.description,
+      consequences: n.consequences,
+      editedByAuthor: n.editedByAuthor,
+    }))
 
   // не повторять прежние варианты: все дети узла из прошлых волн
   const siblings = allNodes.filter((n) => n.parentId === parentNode.id)

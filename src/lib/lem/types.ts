@@ -28,6 +28,8 @@ export interface NodeDTO {
   quip: string | null
   isFinal: boolean
   generationId: string | null
+  /** вариант переписан автором вручную — для промпта и бейджа на карточке */
+  editedByAuthor: boolean
   createdAt: string
 }
 

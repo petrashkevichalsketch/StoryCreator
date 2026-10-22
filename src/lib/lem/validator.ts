@@ -71,19 +71,60 @@ function repairJson(text: string): string {
     .replace(/,\s*([}\]])/g, '$1')
 }
 
+/**
+ * Автозакрытие обрезанного JSON: модель часто теряет последние 1-2 закрывающие
+ * скобки (обрезка по лимиту токенов). Сканируем строку ВНЕ строковых значений,
+ * ведём стек открытых { и [ и дописываем недостающие закрывающие. При малейшем
+ * рассинхроне скобок ремонт не применяется — ответ уйдёт в ретрай как есть.
+ */
+export function autoCloseJson(text: string): string {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (const ch of text) {
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') stack.push('}')
+    else if (ch === '[') stack.push(']')
+    else if (ch === '}' || ch === ']') {
+      if (!stack.length || stack[stack.length - 1] !== ch) return text // рассинхрон — не чиним
+      stack.pop()
+    }
+  }
+  if (!stack.length && !inString) return text
+  return text + (inString ? '"' : '') + stack.reverse().join('')
+}
+
 /** Извлечение JSON из сырого ответа: срезает код-ограждения и окружающий текст */
 export function extractJson(raw: string): unknown {
   let text = raw.trim()
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fence) text = fence[1].trim()
   const start = text.indexOf('{')
+  if (start < 0) throw new Error('в ответе модели нет JSON-объекта')
   const end = text.lastIndexOf('}')
-  if (start >= 0 && end > start) text = text.slice(start, end + 1)
-  try {
-    return JSON.parse(text)
-  } catch {
-    return JSON.parse(repairJson(text))
+  // кандидат 1: срез до последней '}' (обычный случай — проза вокруг JSON);
+  // кандидат 2: срез до конца (обрезанный ответ — допишем скобки ниже)
+  const candidates = end > start ? [text.slice(start, end + 1), text.slice(start)] : [text.slice(start)]
+  let lastError: unknown
+  for (const candidate of candidates) {
+    for (const attempt of [candidate, repairJson(candidate), autoCloseJson(candidate), repairJson(autoCloseJson(candidate))]) {
+      try {
+        return JSON.parse(attempt)
+      } catch (e) {
+        lastError = e
+      }
+    }
   }
+  throw lastError ?? new Error('не удалось разобрать JSON')
 }
 
 /** Нормализация до валидации: пробелы, регистр tone, теги ≤ 3, длина title ≤ 80 */
@@ -131,6 +172,68 @@ export interface ValidationResult {
   ok: boolean
   wave?: NormalizedWave
   error?: string
+}
+
+/* ---------------- Правка варианта вручную (окно «Редактировать») ---------------- */
+
+export const MAX_EDIT_DESCRIPTION_LEN = 2000
+export const MAX_EDIT_CONSEQUENCES_LEN = 500
+
+export interface VariantPatchData {
+  title?: string
+  description?: string
+  consequences?: string
+  tone?: Tone | null
+}
+
+/**
+ * Санитизация ручной правки варианта: трим, лимиты длины, проверка tone.
+ * Возвращает либо данные для Prisma update, либо человекочитаемую ошибку.
+ */
+export function sanitizeVariantPatch(input: unknown): { data: VariantPatchData } | { error: string } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { error: 'ожидается JSON-объект с полями правки (title, description, consequences, tone)' }
+  }
+  const raw = input as Record<string, unknown>
+  const data: VariantPatchData = {}
+
+  if (raw.title !== undefined) {
+    const title = String(raw.title).replace(/\s+/g, ' ').trim()
+    if (!title) return { error: 'название события не может быть пустым' }
+    if (title.length > MAX_TITLE_LEN) return { error: `название события не может быть длиннее ${MAX_TITLE_LEN} символов` }
+    data.title = title
+  }
+  if (raw.description !== undefined) {
+    const description = String(raw.description).trim()
+    if (!description) return { error: 'развитие события не может быть пустым' }
+    if (description.length > MAX_EDIT_DESCRIPTION_LEN) {
+      return { error: `развитие события не может быть длиннее ${MAX_EDIT_DESCRIPTION_LEN} символов` }
+    }
+    data.description = description
+  }
+  if (raw.consequences !== undefined) {
+    const consequences = String(raw.consequences).trim()
+    if (consequences.length > MAX_EDIT_CONSEQUENCES_LEN) {
+      return { error: `последствия не могут быть длиннее ${MAX_EDIT_CONSEQUENCES_LEN} символов` }
+    }
+    data.consequences = consequences
+  }
+  if (raw.tone !== undefined) {
+    if (raw.tone === null || raw.tone === '') {
+      data.tone = null
+    } else {
+      const tone = normalizeTone(String(raw.tone))
+      if (!tone) {
+        return { error: `tone «${String(raw.tone)}» не входит в допустимое множество (dark, light, ironic, neutral)` }
+      }
+      data.tone = tone
+    }
+  }
+
+  if (!Object.keys(data).length) {
+    return { error: 'нет полей для обновления (доступны title, description, consequences, tone)' }
+  }
+  return { data }
 }
 
 /** Полная валидация: нормализация + zod-схема + сверка акта */

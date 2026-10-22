@@ -8,6 +8,8 @@ export interface PathItem {
   title: string
   description: string
   consequences: string
+  /** событие переписано автором вручную — помечается в промпте как финальная редакция */
+  editedByAuthor?: boolean
 }
 
 export interface UserPromptInput {
@@ -58,13 +60,31 @@ export function buildUserPrompt(input: UserPromptInput): string {
       ? `Акт: ${act.name} — уровень ${input.level} из 12.`
       : `Акт: ${act.name} — уровень ${input.level} (углубление эпилога).`
 
-  const pathLines = input.path.length
-    ? input.path
-        .map(
-          (p) =>
-            `${p.level}. ${p.title} — ${p.description}${p.consequences ? `; последствия, уже заявленные ранее: ${p.consequences}` : ''}`
-        )
-        .join('\n')
+  const formatItem = (p: PathItem) =>
+    `${p.level}. ${p.title} — ${p.description}${p.consequences ? `; последствия, уже заявленные ранее: ${p.consequences}` : ''}`
+
+  // Последний элемент пути — развилка, из которой растёт следующая волна.
+  // Она выносится в отдельный приоритетный блок: отредактированный автором
+  // текст становится основой дальнейшего сюжета (требование заказчика).
+  const earlier = input.path.slice(0, -1)
+  const last = input.path[input.path.length - 1]
+
+  const earlierLines = earlier
+    .map((p) => `${formatItem(p)}${p.editedByAuthor ? ' (правка автора — финальная редакция события)' : ''}`)
+    .join('\n')
+
+  const lastBlock = last
+    ? [
+        'ОСНОВА ДАЛЬНЕЙШЕГО СЮЖЕТА — развилка, выбранная автором:',
+        formatItem(last),
+        last.editedByAuthor
+          ? 'ЭТО СОБЫТИЕ АВТОР ПЕРЕПИСАЛ ВРУЧНУЮ, его текст — финальная редакция. Развивай сюжет строго из этой версии: она имеет высший приоритет, и если ранний путь или посылка автора расходятся с ней — следуй развилке, а прежнее направление считается отменённым.'
+          : 'Развивай сюжет именно из этого события: все варианты ниже — его прямые продолжения.',
+      ].join('\n')
+    : ''
+
+  const pathSection = input.path.length
+    ? [earlier.length ? `Пройденный путь (не противоречь ему):\n${earlierLines}` : '', lastBlock].filter(Boolean).join('\n\n')
     : '(путь пуст — это первая волна)'
 
   const excluded = input.excludedTitles.length ? input.excludedTitles.join(' | ') : 'нет'
@@ -74,8 +94,7 @@ export function buildUserPrompt(input: UserPromptInput): string {
 ${levelLine}
 Задача уровня: ${act.focus}
 
-Пройденный путь (не противоречь ему):
-${pathLines}
+${pathSection}
 
 Не повторяй эти варианты предыдущей волны: ${excluded}
 
