@@ -46,6 +46,7 @@ model PlotNode {
   quip         String? // ироничная реплика, сопровождавшая выбор
   isFinal      Boolean    @default(false) // пометка «(конец)»
   generationId String? // волна, из которой пришла развилка
+  editedByAuthor Boolean  @default(false) // текст переписан автором в окне «Редактировать» — высший приоритет в промпте
   createdAt    DateTime   @default(now())
 
   @@index([projectId])
