@@ -42,10 +42,56 @@ describe('пользовательский промпт (раздел 6.3 ТЗ)'
     expect(p).toContain('Категория романа: Психологическая проза')
     expect(p).toContain('Посылка автора: Тихий город')
     expect(p).toContain('Акт: Завязка — уровень 3 из 12')
+    // ранние события — в блоке пути
     expect(p).toContain('1. Город просыпается без электричества')
     expect(p).toContain('последствия, уже заявленные ранее: Изоляция')
+    // последний узел пути — отдельный приоритетный блок «основа сюжета»
+    expect(p).toContain('ОСНОВА ДАЛЬНЕЙШЕГО СЮЖЕТА — развилка, выбранная автором:')
+    expect(p).toContain('2. Второй узел — Описание 2')
+    expect(p).toContain('прямые продолжения')
     expect(p).toContain('Вариант А | Вариант Б')
     expect(p).toContain('Предложи 7 развилок')
+  })
+
+  it('отредактированный автором узел получает высший приоритет в промпте', () => {
+    const p = buildUserPrompt({
+      category: 'Психологическая проза',
+      level: 3,
+      path: [
+        ...path,
+        {
+          level: 3,
+          title: 'Розовый слон',
+          description: 'Автор переписал событие вручную',
+          consequences: '',
+          editedByAuthor: true,
+        },
+      ],
+      excludedTitles: [],
+      n: 5,
+    })
+    expect(p).toContain('ЭТО СОБЫТИЕ АВТОР ПЕРЕПИСАЛ ВРУЧНУЮ')
+    expect(p).toContain('высший приоритет')
+    expect(p).toContain('прежнее направление считается отменённым')
+  })
+
+  it('правка автора на раннем узле пути помечается как финальная редакция', () => {
+    const p = buildUserPrompt({
+      category: 'Психологическая проза',
+      level: 3,
+      path: [{ ...path[0], editedByAuthor: true }, path[1]],
+      excludedTitles: [],
+      n: 5,
+    })
+    expect(p).toContain('(правка автора — финальная редакция события)')
+    expect(p).not.toContain('ПЕРЕПИСАЛ ВРУЧНУЮ')
+  })
+
+  it('при единственном узле пути блок «Пройденный путь» не выводится', () => {
+    const p = buildUserPrompt({ category: 'Хоррор', level: 2, path: [path[0]], excludedTitles: [], n: 5 })
+    expect(p).not.toContain('Пройденный путь')
+    expect(p).toContain('ОСНОВА ДАЛЬНЕЙШЕГО СЮЖЕТА')
+    expect(p).toContain('1. Город просыпается без электричества')
   })
 
   it('без посылки и запретов пишет «нет»', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateWave, extractJson, normalizeWave } from '@/lib/lem/validator'
+import { validateWave, extractJson, normalizeWave, sanitizeVariantPatch } from '@/lib/lem/validator'
 
 function makeOption(i: number, overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -126,11 +126,93 @@ describe('извлечение JSON (extractJson)', () => {
     const data = extractJson(broken) as { level: number }
     expect(data.level).toBe(1)
   })
+
+  it('дописывает обрезанную моделью закрывающую скобку корневого объекта', () => {
+    // реальный сбой glm-4.6: ответ оборвался перед финальной '}' корня
+    const truncated = makeRaw(6).replace(/\}\s*$/, '')
+    const data = extractJson(truncated) as { act: string; options: unknown[] }
+    expect(data.act).toBe('Завязка')
+    expect(data.options).toHaveLength(6)
+  })
+
+  it('дописывает несколько незакрытых скобок и закрывает оборванную строку', () => {
+    const truncated = '{"act":"Завязка","options":[{"title":"Т","description":"Оборвался посреди тек'
+    const data = extractJson(truncated) as { act: string; options: { title: string; description: string }[] }
+    expect(data.act).toBe('Завязка')
+    expect(data.options[0].description).toContain('Оборвался')
+  })
+
+  it('не «чинит» JSON с рассинхронизированными скобками', () => {
+    expect(() => extractJson('{"options": }]')).toThrow()
+  })
 })
 
 describe('normalizeWave защищается от мусора', () => {
   it('не-JSON объект отвергается с ошибкой', () => {
     expect(normalizeWave('строка')).toHaveProperty('error')
     expect(normalizeWave([1, 2, 3])).toHaveProperty('error')
+  })
+})
+
+describe('правка варианта вручную (sanitizeVariantPatch)', () => {
+  const base = { title: '  Корабль  садится  на мель ', description: ' Экипаж в панике. ', consequences: ' Потеря груза ', tone: ' Иронично ' }
+
+  it('тримит пробелы и нормализует tone', () => {
+    const result = sanitizeVariantPatch(base)
+    expect(result).not.toHaveProperty('error')
+    if ('data' in result) {
+      expect(result.data.title).toBe('Корабль садится на мель')
+      expect(result.data.description).toBe('Экипаж в панике.')
+      expect(result.data.consequences).toBe('Потеря груза')
+      expect(result.data.tone).toBe('ironic')
+    }
+  })
+
+  it('пустое название отвергается', () => {
+    expect(sanitizeVariantPatch({ ...base, title: '   ' })).toHaveProperty('error')
+    expect(sanitizeVariantPatch({ ...base, title: '' })).toHaveProperty('error')
+  })
+
+  it('пустое описание отвергается — это ядро варианта', () => {
+    expect(sanitizeVariantPatch({ ...base, description: '' })).toHaveProperty('error')
+  })
+
+  it('последствия можно очистить (опциональное поле)', () => {
+    const result = sanitizeVariantPatch({ ...base, consequences: '' })
+    expect(result).not.toHaveProperty('error')
+    if ('data' in result) expect(result.data.consequences).toBe('')
+  })
+
+  it('название длиннее 80 символов отвергается', () => {
+    const result = sanitizeVariantPatch({ ...base, title: 'Д'.repeat(81) })
+    expect(result).toHaveProperty('error')
+    expect((result as { error: string }).error).toContain('80')
+  })
+
+  it('длинное описание и последствия отвергаются по лимитам', () => {
+    expect(sanitizeVariantPatch({ ...base, description: 'С'.repeat(2001) })).toHaveProperty('error')
+    expect(sanitizeVariantPatch({ ...base, consequences: 'П'.repeat(501) })).toHaveProperty('error')
+  })
+
+  it('tone можно сбросить в null, неизвестный тон отвергается', () => {
+    const cleared = sanitizeVariantPatch({ ...base, tone: null })
+    expect(cleared).not.toHaveProperty('error')
+    if ('data' in cleared) expect(cleared.data.tone).toBeNull()
+    expect(sanitizeVariantPatch({ ...base, tone: 'tragically' })).toHaveProperty('error')
+  })
+
+  it('пустой набор полей и не-объект отвергаются', () => {
+    expect(sanitizeVariantPatch({})).toHaveProperty('error')
+    expect(sanitizeVariantPatch('правка')).toHaveProperty('error')
+    expect(sanitizeVariantPatch(null)).toHaveProperty('error')
+    expect(sanitizeVariantPatch([1])).toHaveProperty('error')
+  })
+
+  it('неизвестные поля игнорируются (isChosen/isFinal не подделать)', () => {
+    const result = sanitizeVariantPatch({ ...base, isChosen: true, isFinal: true, level: 99 })
+    expect(result).not.toHaveProperty('error')
+    if ('data' in result) {
+      expect(Object.keys(result.data).sort()).toEqual(['consequences', 'description', 'title', 'tone'])
+    }
   })
 })

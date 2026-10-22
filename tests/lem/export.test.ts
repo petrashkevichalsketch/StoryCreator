@@ -13,6 +13,7 @@ function node(partial: Partial<NodeDTO> & { id: string; level: number; title: st
     tags: [],
     isChosen: false,
     isLem: false,
+    editedByAuthor: false,
     quip: null,
     isFinal: false,
     generationId: null,
