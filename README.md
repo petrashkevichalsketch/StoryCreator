@@ -16,6 +16,7 @@
 
 \---
 
+<img width="3090" height="1767" alt="Снимок экрана 2026-10-22 120533" src="https://github.com/user-attachments/assets/8c2f1de8-8fb7-4b3c-82b1-b6c9beeb7134" />
 
 
 \## ✨ Основные возможности
